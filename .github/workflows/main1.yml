@@ -1,0 +1,78 @@
+name: macOS ARM App Test
+
+on:
+  workflow_dispatch:
+
+jobs:
+  test-arm-app:
+    runs-on: macos-26
+
+    steps:
+      - name: Repository auschecken
+        uses: actions/checkout@v4
+
+      - name: Release-Infos anzeigen
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release list
+          gh release view --json tagName,name,isPrerelease,assets
+
+      - name: Aktuellen Tag holen
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG=$(gh release view --json tagName --jq .tagName)
+          echo "TAG=$TAG" >> $GITHUB_ENV
+          echo "Gefundener Tag: $TAG"
+
+      - name: Release-Asset herunterladen
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          rm -f MindGuard-arm-build.zip
+          gh release download "$TAG" --pattern "MindGuard-arm-build.zip" --dir .
+          ls -lah
+          file MindGuard-arm-build.zip
+
+      - name: Erste Zeilen der Datei prüfen
+        run: |
+          xxd -l 64 MindGuard-arm-build.zip || true
+          echo "------"
+          head -c 300 MindGuard-arm-build.zip || true
+
+      - name: ZIP testen
+        run: |
+          unzip -t MindGuard-arm-build.zip
+
+      - name: ZIP entpacken
+        run: |
+          unzip -q MindGuard-arm-build.zip -d extracted
+          find extracted -maxdepth 4
+
+      - name: App finden
+        run: |
+          APP_PATH=$(find extracted -name "*.app" -type d | head -n 1)
+          echo "APP_PATH=$APP_PATH" >> $GITHUB_ENV
+          echo "Gefundene App: $APP_PATH"
+
+      - name: Binary anzeigen
+        run: |
+          ls -la "$APP_PATH/Contents/MacOS"
+
+      - name: Architektur prüfen
+        run: |
+          BIN_PATH=$(find "$APP_PATH/Contents/MacOS" -type f | head -n 1)
+          echo "BIN_PATH=$BIN_PATH" >> $GITHUB_ENV
+          lipo -archs "$BIN_PATH" || file "$BIN_PATH"
+
+      - name: App starten
+        run: |
+          open "$APP_PATH"
+          sleep 10
+          pgrep -fl MindGuard || true
+
+      - name: Bundle-Infos anzeigen
+        run: |
+          file "$BIN_PATH"
+          codesign -dv --verbose=4 "$APP_PATH" || true
